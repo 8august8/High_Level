@@ -4,4 +4,4 @@ output_test/
 
 *.json
 
-_pycache_/
+__pycache__/
