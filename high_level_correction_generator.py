@@ -8,6 +8,7 @@
 import os
 import json
 import time
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from PIL import Image
@@ -64,15 +65,12 @@ class HighLevelCorrectionGenerator:
         """从episode数据中提取真实的episode ID"""
         # 从video路径提取episode ID
         video_path = episode_data.get('video', '')
+        
         if video_path:
-            # 格式：task_name/videos/episode_XX_cam_high.mp4
-            parts = video_path.split('/')
-            for part in parts:
-                if 'episode_' in part in part:
-                    # 移除字符串中的.mp4
-                    part = part.replace('.mp4', '')
-                    # 移除字符串中除数字外的其他字符
-                    return ''.join(filter(str.isdigit, part))
+            # 使用正则表达式提取episode ID，格式：task_name/videos/episode_XX_cam_high.mp4
+            match = re.search(r'episode_(\d+)_cam_high\.mp4', video_path)
+            if match:
+                return int(match.group(1))
         
         # 如果失败，返回0
         return 0
