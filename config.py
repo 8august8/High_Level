@@ -9,8 +9,7 @@ GEMINI_CONFIG = {
     "model": "gemini-2.5-pro",          # 使用的模型名称
     "temperature": 0.1,                 # 较低的温度以获得更一致的结果
     "response_mime_type": "application/json",  # API响应格式
-    "max_retries": 2,                   # API调用失败时的重试次数
-    "retry_delay": 3,                   # 重试之间的延迟（秒）
+    "retry_delay": 2,                   # 重试之间的延迟（秒）
 }
 
 # ===================== 处理配置 =====================
