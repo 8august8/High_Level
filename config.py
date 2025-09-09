@@ -9,13 +9,13 @@ GEMINI_CONFIG = {
     "model": "gemini-2.5-pro",          # 使用的模型名称
     "temperature": 0.1,                 # 较低的温度以获得更一致的结果
     "response_mime_type": "application/json",  # API响应格式
-    "retry_delay": 2,                   # 重试之间的延迟（秒）
+    "retry_delay": 1,                   # 重试之间的延迟（秒）
 }
 
 # ===================== 处理配置 =====================
 PROCESSING_CONFIG = {
-    "api_call_delay": 2,                # API调用之间的延迟（秒），避免API限制
-    "episode_processing_delay": 2,       # episode处理之间的延迟（秒）
+    "api_call_delay": 1,                # API调用之间的延迟（秒），避免API限制
+    "episode_processing_delay": 1,       # episode处理之间的延迟（秒）
     "skip_existing_results": False,     # 是否跳过已存在的结果文件
 }
 
