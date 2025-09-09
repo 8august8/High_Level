@@ -256,20 +256,23 @@ class HighLevelCorrectionGenerator:
     def process_task(self, task_name: str, episode_indices: Optional[List[int]] = None) -> None:
         """处理单个任务，可选处理指定的episodes列表；为空则处理全部"""
         annotation_path = Path('data') / f"{task_name}/{task_name}_annotations.json"
-        if not annotation_path.exists():
-            print(f"标注文件不存在: {annotation_path}")
-            return
+
         with open(annotation_path, 'r', encoding='utf-8') as f:
             episodes = json.load(f)
         total = len(episodes)
-        if total == 0:
-            print(f"任务 {task_name} 无可处理的episode")
-            return
-        # 规范化episode选择
+
+        # 增加episode索引映射，遍历episodes，用extract_episode_id提取episode_id，并映射到索引
+        episode_id_to_index = {}
+        for i, episode in enumerate(episodes):
+            episode_id = self._extract_episode_id(episode)
+            episode_id_to_index[episode_id] = i
+
+        # 将episode_indices映射到索引
         if episode_indices is None:
             indices_to_process = list(range(total))
         else:
-            indices_to_process = [i for i in episode_indices if 0 <= i < total]
+            indices_to_process = [episode_id_to_index[i] for i in episode_indices if 0 <= i < total]
+
         task_dir = self.output_dir / task_name
         task_dir.mkdir(exist_ok=True)
         print(f"\n开始处理任务: {task_name}，共 {len(indices_to_process)}/{total} 个episode")
