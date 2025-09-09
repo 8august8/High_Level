@@ -102,6 +102,7 @@ class HighLevelCorrectionGenerator:
         # 获取失败的子任务描述
         failed_subtask_description = 'Unknown'
         if episode_data['failure_subtask'].isdigit():
+            print(f"failure_subtask: {episode_data['failure_subtask']}")
             subtask_idx = int(episode_data['failure_subtask']) - 1
             if 0 <= subtask_idx < len(episode_data['subtasks']):
                 failed_subtask_description = episode_data['subtasks'][subtask_idx]
@@ -148,6 +149,48 @@ class HighLevelCorrectionGenerator:
         with open(annotation_file, 'r', encoding='utf-8') as f:
             episodes = json.load(f)
         return len(episodes)
+    
+    def parse_episode_selection(self, selection: str, max_count: int) -> Optional[List[int]]:
+        """解析用户输入的episode选择，支持空/ALL/单个/列表/区间组合
+
+        返回 None 表示处理全部；否则返回去重排序后的索引列表。
+        """
+        if selection is None:
+            return None
+        selection = selection.strip().lower()
+        if selection == "" or selection in {"all", "*"}:
+            return None
+        selected_indices = set()
+        for token in selection.split(','):
+            token = token.strip()
+            if not token:
+                continue
+            if '-' in token:
+                parts = token.split('-')
+                if len(parts) != 2:
+                    print(f"  警告: 无法解析区间 '{token}'，已跳过")
+                    continue
+                try:
+                    start = int(parts[0].strip())
+                    end = int(parts[1].strip())
+                except ValueError:
+                    print(f"  警告: 非法区间 '{token}'，已跳过")
+                    continue
+                if start > end:
+                    start, end = end, start
+                for idx in range(start, end + 1):
+                    if 0 <= idx < max_count:
+                        selected_indices.add(idx)
+            else:
+                try:
+                    idx = int(token)
+                    if 0 <= idx < max_count:
+                        selected_indices.add(idx)
+                    else:
+                        print(f"  警告: 索引越界 '{token}'，已跳过")
+                except ValueError:
+                    print(f"  警告: 非法索引 '{token}'，已跳过")
+        return sorted(selected_indices)
     
     def generate_high_level_analysis(self, episode_data: Dict[str, Any]) -> Optional[HighLevelAnalysis]:
         """生成单个episode的高层次分析"""
@@ -210,43 +253,48 @@ class HighLevelCorrectionGenerator:
         
         return result
     
-    def process_annotation_file(self, annotation_file: str) -> None:
-        """处理标注文件，生成所有episode的高层次信息"""
-        annotation_path = Path('data') / annotation_file
-        
+    def process_task(self, task_name: str, episode_indices: Optional[List[int]] = None) -> None:
+        """处理单个任务，可选处理指定的episodes列表；为空则处理全部"""
+        annotation_path = Path('data') / f"{task_name}/{task_name}_annotations.json"
         if not annotation_path.exists():
             print(f"标注文件不存在: {annotation_path}")
             return
-        
-        print(f"正在处理标注文件: {annotation_file}")
-        
-        # 读取标注数据
         with open(annotation_path, 'r', encoding='utf-8') as f:
             episodes = json.load(f)
-        
-        # 获取任务名称（从文件路径提取）
-        task_name = annotation_path.stem.replace('_annotations', '')
+        total = len(episodes)
+        if total == 0:
+            print(f"任务 {task_name} 无可处理的episode")
+            return
+        # 规范化episode选择
+        if episode_indices is None:
+            indices_to_process = list(range(total))
+        else:
+            indices_to_process = [i for i in episode_indices if 0 <= i < total]
         task_dir = self.output_dir / task_name
         task_dir.mkdir(exist_ok=True)
-        
-        for i, episode_data in enumerate(episodes):
-            print(f"\n处理 {i+1}/{len(episodes)} 个数据点")
-            
-            # 从数据中提取真实的episode ID
+        print(f"\n开始处理任务: {task_name}，共 {len(indices_to_process)}/{total} 个episode")
+        for i, idx in enumerate(indices_to_process, 1):
+            episode_data = episodes[idx]
+            print(f"\n处理 {i}/{len(indices_to_process)} 个数据点 (原始索引: {idx})")
             episode_id = self._extract_episode_id(episode_data)
             print(f"Episode ID: episode_{episode_id}")
-            
             result = self.process_single_episode(episode_data, episode_id)
-            
             episode_output_file = task_dir / f"episode_{episode_id}_high_level.json"
             with open(episode_output_file, 'w', encoding='utf-8') as f:
                 json_indent = 4
                 json.dump(result, f, ensure_ascii=False, indent=json_indent)
-                
             print(f"已保存: {episode_output_file}")
-            
-            # 添加延迟以避免API限制
             time.sleep(PROCESSING_CONFIG["episode_processing_delay"])
+    
+    def process_annotation_file(self, annotation_file: str) -> None:
+        """处理标注文件，生成所有episode的高层次信息"""
+        # 为向后兼容保留该接口，内部委托到统一的 process_task
+        annotation_path = Path('data') / annotation_file
+        if not annotation_path.exists():
+            print(f"标注文件不存在: {annotation_path}")
+            return
+        task_name = annotation_path.stem.replace('_annotations', '')
+        self.process_task(task_name)
     
     def process_all_tasks(self) -> None:
         """处理data目录下的所有任务"""
@@ -256,8 +304,7 @@ class HighLevelCorrectionGenerator:
             if task_dir.is_dir():
                 annotation_file = task_dir / f"{task_dir.name}_annotations.json"
                 if annotation_file.exists():
-                    print(f"\n开始处理任务: {task_dir.name}")
-                    self.process_annotation_file(str(annotation_file.relative_to(data_dir)))
+                    self.process_task(task_dir.name)
                 else:
                     print(f"跳过 {task_dir.name}: 未找到标注文件")
 
@@ -278,17 +325,16 @@ def main():
     # 创建生成器
     generator = HighLevelCorrectionGenerator()
     
-    # 询问用户处理选项
+    # 询问用户处理选项（简化为两个入口，单个任务支持选择多个episode）
     print("\n请选择处理选项:")
     print("1. 处理所有任务")
-    print("2. 处理单个任务")
-    print("3. 处理单个episode")
+    print("2. 处理单个任务（支持选择多个episode，如: 0,3-5,7 或 ALL）")
     
-    choice = input("请输入选择 (1 或 2 或 3): ").strip()
+    choice = input("请输入选择 (1 或 2): ").strip()
     
     if choice == "1":
         generator.process_all_tasks()
-    elif choice == "2" or choice == "3":
+    elif choice == "2":
         # 列出可用的任务
         data_dir = Path('data')
         available_tasks = []
@@ -310,35 +356,11 @@ def main():
             task_choice = int(input("请选择任务编号: ")) - 1
             if 0 <= task_choice < len(available_tasks):
                 selected_task = available_tasks[task_choice]
-                annotation_file = f"{selected_task}/{selected_task}_annotations.json"
-                if choice == "2":
-                    generator.process_annotation_file(annotation_file)
-                elif choice == "3":
-                    episode_id_count = generator._episode_id_count(available_tasks[task_choice])
-                    print(f"\n可用的episode:\nepisode_0-episode_{episode_id_count-1}")
-                    
-                    try:
-                        episode_choice = int(input("请选择episode编号: "))
-                        annotation_path = Path('data') / annotation_file
-                        with open(annotation_path, 'r', encoding='utf-8') as f:
-                            episode_data = json.load(f)
-                        if 0 <= episode_choice < episode_id_count:
-                            result = generator.process_single_episode(episode_data[episode_choice], episode_choice)
-                        
-                            task_dir = generator.output_dir / selected_task
-                            task_dir.mkdir(exist_ok=True)
-                            
-                            episode_output_file = task_dir / f"episode_{episode_choice}_high_level.json"
-                            with open(episode_output_file, 'w', encoding='utf-8') as f:
-                                json_indent = 4
-                                json.dump(result, f, ensure_ascii=False, indent=json_indent)
-                                
-                            print(f"已保存: {episode_output_file}")
-                            
-                        else:
-                            print("无效的episode选择")
-                    except ValueError:
-                        print("请输入有效的数字")
+                episode_id_count = generator._episode_id_count(available_tasks[task_choice])
+                print(f"\n可用的episode:\nepisode_0-episode_{episode_id_count-1}")
+                selection = input("请输入episode选择（ALL/空 表示全部；支持 0,3-5,7）: ")
+                indices = generator.parse_episode_selection(selection, episode_id_count)
+                generator.process_task(selected_task, indices)
             else:
                 print("无效的任务选择")
         except ValueError:
